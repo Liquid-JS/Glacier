@@ -93,9 +93,9 @@ function snowstorm(_options) {
                 .map(k => new Promise((resolve, reject) => {
                 let fp = '';
                 if (ball.content[k].startsWith('/'))
-                    fp = path.join(ball.file.base, ball.content[k].substr(1));
+                    fp = path.join(glacier.basePath, ball.content[k].substr(1));
                 else
-                    fp = path.join(glacier.basePath, ball.content[k]);
+                    fp = path.join(path.dirname(ball.file.path), ball.content[k]);
                 fs.readFile(fp, 'utf8', (err, data) => {
                     if (err)
                         return reject(err);

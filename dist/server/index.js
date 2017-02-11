@@ -46,14 +46,15 @@ class Glacier {
     getData(urlPath, safe = true) {
         if (safe)
             urlPath = getSafePath(urlPath);
+        if (!urlPath)
+            urlPath = '__index';
         if (urlPath in this.cache) {
             let d = new Date();
             d.setTime(d.getTime() - this.config['cacheLife']);
             if (this.cache[urlPath].timestamp > d)
                 return this.cache[urlPath].dataPromise;
         }
-        let pr = (urlPath ? readFilePromise(path.join(this.config['path'], urlPath) + '.bson') : Promise.reject({}))
-            .catch(err => readFilePromise(path.join(this.config['path'], urlPath, '__index') + '.bson'))
+        let pr = readFilePromise(path.join(this.config['path'], urlPath) + '.bson')
             .then(_data => {
             let data = bson.deserialize(_data);
             data.tpl = this.resolveTpl(data);
