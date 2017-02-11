@@ -1,6 +1,6 @@
 {
   "name": "@liquid-js/glacier",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Flat-file content builder",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -18,7 +18,7 @@
   },
   "homepage": "https://github.com/Liquid-JS/Glacier#readme",
   "dependencies": {
-    "@liquid-js/river": "file:///D:\\Development\\River",
+    "@liquid-js/river": "^0.0.1",
     "@types/express": "^4.0.35",
     "@types/node": "^7.0.5",
     "@types/vinyl": "^2.0.0",
