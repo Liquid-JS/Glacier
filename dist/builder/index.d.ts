@@ -20,6 +20,8 @@ export declare class GlacierBuilder {
     extraFiles: Array<File>;
     constructor(root: Snowball, basePath: string);
     forEach(callback: (node: Snowball) => any, root?: Snowball): void;
+    getFilePath(ball: Snowball, file: string): Promise<string>;
+    getFile(ball: Snowball, file: string, subdir?: string): Promise<File>;
 }
 export interface SnowstormOptions {
 }

@@ -23,6 +23,10 @@ export class Snowball {
         this._parent = parent
     }
 
+    get parent() {
+        return this._parent
+    }
+
     get container(): boolean {
         return Object.keys(this.children).length > 0
     }
@@ -44,6 +48,60 @@ export class GlacierBuilder {
     forEach(callback: (node: Snowball) => any, root: Snowball = this.root) {
         Object.keys(root.children).forEach(k => this.forEach(callback, root.children[k]))
         callback(root)
+    }
+
+    getFilePath(ball: Snowball, file: string) {
+        return lazyImport('path')
+            .then(imp => {
+                let path = imp[0]
+                let fp = ''
+                if (file.startsWith('/'))
+                    fp = path.join(this.basePath, file.substr(1))
+                else
+                    fp = path.join(this.basePath, (ball.parent || { path: [] }).path.join('/'), file)
+                return fp
+            })
+    }
+
+    getFile(ball: Snowball, file: string, subdir?: string) {
+        return this.getFilePath(ball, file)
+            .then(fp => lazyImport('fs', 'vinyl', 'crypto', 'path')
+                .then(imp => {
+                    let fs = imp[0]
+                    let _file = imp[1]
+                    let crypto = imp[2]
+                    let path = imp[3]
+
+                    let ext = path.extname(fp)
+                    let hash = crypto.createHmac('md5', path.relative(this.basePath, fp).replace(new RegExp('\\' + path.sep, 'g'), '/')).digest('hex')
+
+                    let np = fp
+                    if (subdir) {
+                        np = path.join(this.basePath, subdir, hash + ext)
+                    } else {
+                        np = path.join(this.basePath, hash + ext)
+                    }
+
+                    let ex = this.extraFiles.filter(file => file.path == np)
+                    if (ex.length)
+                        return Promise.resolve(ex[0])
+
+                    return new Promise<File>((resolve, reject) => {
+                        fs.readFile(fp, (err, buff) => {
+                            if (err)
+                                return reject(err)
+
+                            let file: File = new _file({
+                                base: this.basePath,
+                                path: np,
+                                contents: buff
+                            })
+
+                            resolve(file)
+                        })
+                    })
+                })
+            )
     }
 }
 

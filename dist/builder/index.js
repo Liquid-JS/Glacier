@@ -17,6 +17,9 @@ class Snowball {
         this._path = path;
         this._parent = parent;
     }
+    get parent() {
+        return this._parent;
+    }
     get container() {
         return Object.keys(this.children).length > 0;
     }
@@ -34,6 +37,52 @@ class GlacierBuilder {
     forEach(callback, root = this.root) {
         Object.keys(root.children).forEach(k => this.forEach(callback, root.children[k]));
         callback(root);
+    }
+    getFilePath(ball, file) {
+        return river_1.lazyImport('path')
+            .then(imp => {
+            let path = imp[0];
+            let fp = '';
+            if (file.startsWith('/'))
+                fp = path.join(this.basePath, file.substr(1));
+            else
+                fp = path.join(this.basePath, (ball.parent || { path: [] }).path.join('/'), file);
+            return fp;
+        });
+    }
+    getFile(ball, file, subdir) {
+        return this.getFilePath(ball, file)
+            .then(fp => river_1.lazyImport('fs', 'vinyl', 'crypto', 'path')
+            .then(imp => {
+            let fs = imp[0];
+            let _file = imp[1];
+            let crypto = imp[2];
+            let path = imp[3];
+            let ext = path.extname(fp);
+            let hash = crypto.createHmac('md5', path.relative(this.basePath, fp).replace(new RegExp('\\' + path.sep, 'g'), '/')).digest('hex');
+            let np = fp;
+            if (subdir) {
+                np = path.join(this.basePath, subdir, hash + ext);
+            }
+            else {
+                np = path.join(this.basePath, hash + ext);
+            }
+            let ex = this.extraFiles.filter(file => file.path == np);
+            if (ex.length)
+                return Promise.resolve(ex[0]);
+            return new Promise((resolve, reject) => {
+                fs.readFile(fp, (err, buff) => {
+                    if (err)
+                        return reject(err);
+                    let file = new _file({
+                        base: this.basePath,
+                        path: np,
+                        contents: buff
+                    });
+                    resolve(file);
+                });
+            });
+        }));
     }
 }
 exports.GlacierBuilder = GlacierBuilder;
