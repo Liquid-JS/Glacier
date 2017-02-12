@@ -20,7 +20,7 @@ export declare class GlacierBuilder {
     extraFiles: Array<File>;
     constructor(root: Snowball, basePath: string);
     forEach(callback: (node: Snowball) => any, root?: Snowball): void;
-    getFilePath(ball: Snowball, file: string): Promise<string>;
+    getFilePath(ball: Snowball, file: string): string;
     getFile(ball: Snowball, file: string, subdir?: string): Promise<File>;
 }
 export interface SnowstormOptions {
@@ -30,4 +30,4 @@ export interface MeltdownOptions {
 }
 export declare function cleanAliasPart(part: string): string;
 export declare function snowstorm(_options?: any): (files: File[]) => Promise<GlacierBuilder>;
-export declare function meltdown(_options?: any): (glacier: GlacierBuilder) => Promise<File[]>;
+export declare function meltdown(_options?: any): (glacier: GlacierBuilder) => File[];

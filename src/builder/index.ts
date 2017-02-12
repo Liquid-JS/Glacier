@@ -1,5 +1,9 @@
-import { lazyImport } from '@liquid-js/river'
 import * as File from 'vinyl'
+import * as path from 'path'
+import * as fs from 'fs'
+import * as crypto from 'crypto'
+
+const bson = new (require('bson'))()
 
 export class Snowball {
 
@@ -51,57 +55,45 @@ export class GlacierBuilder {
     }
 
     getFilePath(ball: Snowball, file: string) {
-        return lazyImport('path')
-            .then(imp => {
-                let path = imp[0]
-                let fp = ''
-                if (file.startsWith('/'))
-                    fp = path.join(this.basePath, file.substr(1))
-                else
-                    fp = path.join(this.basePath, (ball.parent || { path: [] }).path.join('/'), file)
-                return fp
-            })
+        let fp = ''
+        if (file.startsWith('/'))
+            fp = path.join(this.basePath, file.substr(1))
+        else
+            fp = path.join(this.basePath, (ball.parent || { path: [] }).path.join('/'), file)
+        return fp
     }
 
     getFile(ball: Snowball, file: string, subdir?: string) {
-        return this.getFilePath(ball, file)
-            .then(fp => lazyImport('fs', 'vinyl', 'crypto', 'path')
-                .then(imp => {
-                    let fs = imp[0]
-                    let _file = imp[1]
-                    let crypto = imp[2]
-                    let path = imp[3]
+        let fp = this.getFilePath(ball, file)
 
-                    let ext = path.extname(fp)
-                    let hash = crypto.createHmac('md5', path.relative(this.basePath, fp).replace(new RegExp('\\' + path.sep, 'g'), '/')).digest('hex')
+        let ext = path.extname(fp)
+        let hash = crypto.createHmac('md5', path.relative(this.basePath, fp).replace(new RegExp('\\' + path.sep, 'g'), '/')).digest('hex')
 
-                    let np = fp
-                    if (subdir) {
-                        np = path.join(this.basePath, subdir, hash + ext)
-                    } else {
-                        np = path.join(this.basePath, hash + ext)
-                    }
+        let np = fp
+        if (subdir) {
+            np = path.join(this.basePath, subdir, hash + ext)
+        } else {
+            np = path.join(this.basePath, hash + ext)
+        }
 
-                    let ex = this.extraFiles.filter(file => file.path == np)
-                    if (ex.length)
-                        return Promise.resolve(ex[0])
+        let ex = this.extraFiles.filter(file => file.path == np)
+        if (ex.length)
+            return Promise.resolve(ex[0])
 
-                    return new Promise<File>((resolve, reject) => {
-                        fs.readFile(fp, (err, buff) => {
-                            if (err)
-                                return reject(err)
+        return new Promise<File>((resolve, reject) => {
+            fs.readFile(fp, (err, buff) => {
+                if (err)
+                    return reject(err)
 
-                            let file: File = new _file({
-                                base: this.basePath,
-                                path: np,
-                                contents: buff
-                            })
-
-                            resolve(file)
-                        })
-                    })
+                let file: File = new File({
+                    base: this.basePath,
+                    path: np,
+                    contents: buff
                 })
-            )
+
+                resolve(file)
+            })
+        })
     }
 }
 
@@ -124,98 +116,93 @@ export function snowstorm(_options?: any) {
     let options: SnowstormOptions = Object.assign({}, _options)
 
     return (files: Array<File>) => {
-        return lazyImport('fs', 'bson', 'path')
-            .then(imp => {
-                let fs = imp[0]
-                let bson = new imp[1]()
-                let path = imp[2]
+        let balls: Array<{
+            content: any
+            file: File
+        }> = []
 
-                let balls: Array<{
-                    content: any
-                    file: File
-                }> = []
-                let drops = []
-                files.forEach(file => {
-                    let content: any = {}
-                    try {
-                        content = bson.deserialize(file.contents)
-                    } catch (e) {
-                        try {
-                            content = JSON.parse(file.contents.toString())
-                        } catch (e1) {
+        let drops = []
 
-                        }
-                    }
-                    if (Object.keys(content).length > 0) {
-                        balls.push({
-                            file: file,
-                            content: content
-                        })
-                    } else {
-                        drops.push(file)
-                    }
-                })
+        files.forEach(file => {
+            let content: any = {}
+            try {
+                content = bson.deserialize(file.contents)
+            } catch (e) {
+                try {
+                    content = JSON.parse(file.contents.toString())
+                } catch (e1) {
 
-                let base = __dirname
-                let bases = balls.map(ball => ball.file.base).sort()
-                if (bases.length) {
-                    let fr = bases[0]
-                    let ls = bases[bases.length - 1]
-                    let l = Math.min(fr.length, ls.length)
-                    let i = 0
-                    while (i < l && fr[i] == ls[i])
-                        i++
-                    base = fr.substr(0, i)
                 }
+            }
+            if (Object.keys(content).length > 0) {
+                balls.push({
+                    file: file,
+                    content: content
+                })
+            } else {
+                drops.push(file)
+            }
+        })
 
-                let root = new Snowball()
-                let glacier = new GlacierBuilder(root, base)
-                glacier.extraFiles = drops
+        let base = __dirname
+        let bases = balls.map(ball => ball.file.base).sort()
+        if (bases.length) {
+            let fr = bases[0]
+            let ls = bases[bases.length - 1]
+            let l = Math.min(fr.length, ls.length)
+            let i = 0
+            while (i < l && fr[i] == ls[i])
+                i++
+            base = fr.substr(0, i)
+        }
 
-                return Promise.all([].concat(...balls.map(ball =>
-                    Object.keys(ball.content)
-                        .filter(k => k.match(/[a-z]File$/))
-                        .map(k => new Promise<string>((resolve, reject) => {
-                            let fp = ''
+        let root = new Snowball()
+        let glacier = new GlacierBuilder(root, base)
+        glacier.extraFiles = drops
 
-                            if (ball.content[k].startsWith('/'))
-                                fp = path.join(glacier.basePath, ball.content[k].substr(1))
-                            else
-                                fp = path.join(path.dirname(ball.file.path), ball.content[k])
+        return Promise.all([].concat(...balls.map(ball =>
+            Object.keys(ball.content)
+                .filter(k => k.match(/[a-z]File$/))
+                .map(k => new Promise<string>((resolve, reject) => {
+                    let fp = ''
 
-                            fs.readFile(fp, 'utf8', (err, data) => {
-                                if (err)
-                                    return reject(err)
+                    if (ball.content[k].startsWith('/'))
+                        fp = path.join(glacier.basePath, ball.content[k].substr(1))
+                    else
+                        fp = path.join(path.dirname(ball.file.path), ball.content[k])
 
-                                let nk = k.substr(0, k.length - 4)
-                                ball.content[nk] = data
-                                delete ball.content[k]
-                                resolve()
-                            })
-                        }))
-                )))
-                    .then(() => {
-                        balls.forEach(ball => {
-                            let pt: Array<string> = path
-                                .relative(glacier.basePath, ball.file.path)
-                                .split(path.sep)
-                                .filter(part => part != '..' && part != '.')
-                                .map((part: string) => part.toLowerCase().endsWith('.json') || part.toLowerCase().endsWith('.bson') ? part.substr(0, part.length - 5) : part)
-                                .map(part => part == '__index' ? '' : part)
-                                .filter(part => !!part)
+                    fs.readFile(fp, 'utf8', (err, data) => {
+                        if (err)
+                            return reject(err)
 
-                            let r = root
-                            for (let i = 0; i < pt.length; i++) {
-                                if (!(pt[i] in r.children)) {
-                                    r.children[pt[i]] = new Snowball()
-                                    r.children[pt[i]].parent = r
-                                }
-                                r = r.children[pt[i]]
-                            }
-                            r.data = ball.content
-                        })
-                        return glacier
+                        let nk = k.substr(0, k.length - 4)
+                        ball.content[nk] = data
+                        delete ball.content[k]
+                        resolve()
                     })
+                }))
+        )))
+            .then(() => {
+                balls.forEach(ball => {
+                    let pt: Array<string> = path
+                        .relative(glacier.basePath, ball.file.path)
+                        .split(path.sep)
+                        .filter(part => part != '..' && part != '.')
+                        .map((part: string) => part.toLowerCase().endsWith('.json') || part.toLowerCase().endsWith('.bson') ? part.substr(0, part.length - 5) : part)
+                        .map(part => part == '__index' ? '' : part)
+                        .filter(part => !!part)
+
+                    let r = root
+                    for (let i = 0; i < pt.length; i++) {
+                        if (!(pt[i] in r.children)) {
+                            r.children[pt[i]] = new Snowball()
+                            r.children[pt[i]].parent = r
+                        }
+                        r = r.children[pt[i]]
+                    }
+                    r.data = ball.content
+                })
+                return glacier
             })
     }
 }
@@ -227,44 +214,33 @@ export function meltdown(_options?: any) {
     }, _options)
 
     return (glacier: GlacierBuilder) => {
-        return lazyImport('vinyl', 'bson', 'path')
-            .then<Array<File>>(imp => {
-                let _file = imp[0]
-                let bson = new imp[1]()
-                let path = imp[2]
+        let files: Array<File> = []
+        glacier.forEach((node) => {
+            let pt = node.path
+                .map(part => cleanAliasPart(part))
+                .filter(part => !!part)
+                .join(path.sep)
 
-                let cwd = process.cwd()
+            if (!pt)
+                pt = '__index'
+            pt += '.bson'
 
-                let files: Array<File> = []
-                glacier.forEach((node) => {
-                    let pt = node.path
-                        .map(part => cleanAliasPart(part))
-                        .filter(part => !!part)
-                        .join(path.sep)
+            files.push(new File({
+                base: glacier.basePath,
+                path: path.join(glacier.basePath, pt),
+                contents: bson.serialize(node.data)
+            }))
+        })
+        glacier.extraFiles.forEach(file => {
+            let pt = path.relative(glacier.basePath, file.path)
+                .split(path.sep)
+                .filter(part => part != '..' && part != '.')
+                .join(path.sep)
 
-                    if (!pt)
-                        pt = '__index'
-                    pt += '.bson'
-
-                    files.push(new _file({
-                        cwd: cwd,
-                        base: glacier.basePath,
-                        path: path.join(glacier.basePath, pt),
-                        contents: bson.serialize(node.data)
-                    }))
-                })
-                glacier.extraFiles.forEach(file => {
-                    let pt = path.relative(glacier.basePath, file.path)
-                        .split(path.sep)
-                        .filter(part => part != '..' && part != '.')
-                        .join(path.sep)
-
-                    file.cwd = cwd
-                    file.base = glacier.basePath
-                    file.path = path.join(glacier.basePath, options.staticPath, pt)
-                    files.push(file)
-                })
-                return files
-            })
+            file.base = glacier.basePath
+            file.path = path.join(glacier.basePath, options.staticPath, pt)
+            files.push(file)
+        })
+        return files
     }
 }

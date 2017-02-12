@@ -1,6 +1,6 @@
 {
   "name": "@liquid-js/glacier",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Flat-file content builder",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

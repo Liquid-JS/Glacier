@@ -1,5 +1,9 @@
 "use strict";
-const river_1 = require("@liquid-js/river");
+const File = require("vinyl");
+const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
+const bson = new (require('bson'))();
 class Snowball {
     constructor() {
         this._path = [];
@@ -39,50 +43,39 @@ class GlacierBuilder {
         callback(root);
     }
     getFilePath(ball, file) {
-        return river_1.lazyImport('path')
-            .then(imp => {
-            let path = imp[0];
-            let fp = '';
-            if (file.startsWith('/'))
-                fp = path.join(this.basePath, file.substr(1));
-            else
-                fp = path.join(this.basePath, (ball.parent || { path: [] }).path.join('/'), file);
-            return fp;
-        });
+        let fp = '';
+        if (file.startsWith('/'))
+            fp = path.join(this.basePath, file.substr(1));
+        else
+            fp = path.join(this.basePath, (ball.parent || { path: [] }).path.join('/'), file);
+        return fp;
     }
     getFile(ball, file, subdir) {
-        return this.getFilePath(ball, file)
-            .then(fp => river_1.lazyImport('fs', 'vinyl', 'crypto', 'path')
-            .then(imp => {
-            let fs = imp[0];
-            let _file = imp[1];
-            let crypto = imp[2];
-            let path = imp[3];
-            let ext = path.extname(fp);
-            let hash = crypto.createHmac('md5', path.relative(this.basePath, fp).replace(new RegExp('\\' + path.sep, 'g'), '/')).digest('hex');
-            let np = fp;
-            if (subdir) {
-                np = path.join(this.basePath, subdir, hash + ext);
-            }
-            else {
-                np = path.join(this.basePath, hash + ext);
-            }
-            let ex = this.extraFiles.filter(file => file.path == np);
-            if (ex.length)
-                return Promise.resolve(ex[0]);
-            return new Promise((resolve, reject) => {
-                fs.readFile(fp, (err, buff) => {
-                    if (err)
-                        return reject(err);
-                    let file = new _file({
-                        base: this.basePath,
-                        path: np,
-                        contents: buff
-                    });
-                    resolve(file);
+        let fp = this.getFilePath(ball, file);
+        let ext = path.extname(fp);
+        let hash = crypto.createHmac('md5', path.relative(this.basePath, fp).replace(new RegExp('\\' + path.sep, 'g'), '/')).digest('hex');
+        let np = fp;
+        if (subdir) {
+            np = path.join(this.basePath, subdir, hash + ext);
+        }
+        else {
+            np = path.join(this.basePath, hash + ext);
+        }
+        let ex = this.extraFiles.filter(file => file.path == np);
+        if (ex.length)
+            return Promise.resolve(ex[0]);
+        return new Promise((resolve, reject) => {
+            fs.readFile(fp, (err, buff) => {
+                if (err)
+                    return reject(err);
+                let file = new File({
+                    base: this.basePath,
+                    path: np,
+                    contents: buff
                 });
+                resolve(file);
             });
-        }));
+        });
     }
 }
 exports.GlacierBuilder = GlacierBuilder;
@@ -94,87 +87,81 @@ exports.cleanAliasPart = cleanAliasPart;
 function snowstorm(_options) {
     let options = Object.assign({}, _options);
     return (files) => {
-        return river_1.lazyImport('fs', 'bson', 'path')
-            .then(imp => {
-            let fs = imp[0];
-            let bson = new imp[1]();
-            let path = imp[2];
-            let balls = [];
-            let drops = [];
-            files.forEach(file => {
-                let content = {};
-                try {
-                    content = bson.deserialize(file.contents);
-                }
-                catch (e) {
-                    try {
-                        content = JSON.parse(file.contents.toString());
-                    }
-                    catch (e1) {
-                    }
-                }
-                if (Object.keys(content).length > 0) {
-                    balls.push({
-                        file: file,
-                        content: content
-                    });
-                }
-                else {
-                    drops.push(file);
-                }
-            });
-            let base = __dirname;
-            let bases = balls.map(ball => ball.file.base).sort();
-            if (bases.length) {
-                let fr = bases[0];
-                let ls = bases[bases.length - 1];
-                let l = Math.min(fr.length, ls.length);
-                let i = 0;
-                while (i < l && fr[i] == ls[i])
-                    i++;
-                base = fr.substr(0, i);
+        let balls = [];
+        let drops = [];
+        files.forEach(file => {
+            let content = {};
+            try {
+                content = bson.deserialize(file.contents);
             }
-            let root = new Snowball();
-            let glacier = new GlacierBuilder(root, base);
-            glacier.extraFiles = drops;
-            return Promise.all([].concat(...balls.map(ball => Object.keys(ball.content)
-                .filter(k => k.match(/[a-z]File$/))
-                .map(k => new Promise((resolve, reject) => {
-                let fp = '';
-                if (ball.content[k].startsWith('/'))
-                    fp = path.join(glacier.basePath, ball.content[k].substr(1));
-                else
-                    fp = path.join(path.dirname(ball.file.path), ball.content[k]);
-                fs.readFile(fp, 'utf8', (err, data) => {
-                    if (err)
-                        return reject(err);
-                    let nk = k.substr(0, k.length - 4);
-                    ball.content[nk] = data;
-                    delete ball.content[k];
-                    resolve();
+            catch (e) {
+                try {
+                    content = JSON.parse(file.contents.toString());
+                }
+                catch (e1) {
+                }
+            }
+            if (Object.keys(content).length > 0) {
+                balls.push({
+                    file: file,
+                    content: content
                 });
-            })))))
-                .then(() => {
-                balls.forEach(ball => {
-                    let pt = path
-                        .relative(glacier.basePath, ball.file.path)
-                        .split(path.sep)
-                        .filter(part => part != '..' && part != '.')
-                        .map((part) => part.toLowerCase().endsWith('.json') || part.toLowerCase().endsWith('.bson') ? part.substr(0, part.length - 5) : part)
-                        .map(part => part == '__index' ? '' : part)
-                        .filter(part => !!part);
-                    let r = root;
-                    for (let i = 0; i < pt.length; i++) {
-                        if (!(pt[i] in r.children)) {
-                            r.children[pt[i]] = new Snowball();
-                            r.children[pt[i]].parent = r;
-                        }
-                        r = r.children[pt[i]];
-                    }
-                    r.data = ball.content;
-                });
-                return glacier;
+            }
+            else {
+                drops.push(file);
+            }
+        });
+        let base = __dirname;
+        let bases = balls.map(ball => ball.file.base).sort();
+        if (bases.length) {
+            let fr = bases[0];
+            let ls = bases[bases.length - 1];
+            let l = Math.min(fr.length, ls.length);
+            let i = 0;
+            while (i < l && fr[i] == ls[i])
+                i++;
+            base = fr.substr(0, i);
+        }
+        let root = new Snowball();
+        let glacier = new GlacierBuilder(root, base);
+        glacier.extraFiles = drops;
+        return Promise.all([].concat(...balls.map(ball => Object.keys(ball.content)
+            .filter(k => k.match(/[a-z]File$/))
+            .map(k => new Promise((resolve, reject) => {
+            let fp = '';
+            if (ball.content[k].startsWith('/'))
+                fp = path.join(glacier.basePath, ball.content[k].substr(1));
+            else
+                fp = path.join(path.dirname(ball.file.path), ball.content[k]);
+            fs.readFile(fp, 'utf8', (err, data) => {
+                if (err)
+                    return reject(err);
+                let nk = k.substr(0, k.length - 4);
+                ball.content[nk] = data;
+                delete ball.content[k];
+                resolve();
             });
+        })))))
+            .then(() => {
+            balls.forEach(ball => {
+                let pt = path
+                    .relative(glacier.basePath, ball.file.path)
+                    .split(path.sep)
+                    .filter(part => part != '..' && part != '.')
+                    .map((part) => part.toLowerCase().endsWith('.json') || part.toLowerCase().endsWith('.bson') ? part.substr(0, part.length - 5) : part)
+                    .map(part => part == '__index' ? '' : part)
+                    .filter(part => !!part);
+                let r = root;
+                for (let i = 0; i < pt.length; i++) {
+                    if (!(pt[i] in r.children)) {
+                        r.children[pt[i]] = new Snowball();
+                        r.children[pt[i]].parent = r;
+                    }
+                    r = r.children[pt[i]];
+                }
+                r.data = ball.content;
+            });
+            return glacier;
         });
     };
 }
@@ -184,40 +171,31 @@ function meltdown(_options) {
         staticPath: '__ext'
     }, _options);
     return (glacier) => {
-        return river_1.lazyImport('vinyl', 'bson', 'path')
-            .then(imp => {
-            let _file = imp[0];
-            let bson = new imp[1]();
-            let path = imp[2];
-            let cwd = process.cwd();
-            let files = [];
-            glacier.forEach((node) => {
-                let pt = node.path
-                    .map(part => cleanAliasPart(part))
-                    .filter(part => !!part)
-                    .join(path.sep);
-                if (!pt)
-                    pt = '__index';
-                pt += '.bson';
-                files.push(new _file({
-                    cwd: cwd,
-                    base: glacier.basePath,
-                    path: path.join(glacier.basePath, pt),
-                    contents: bson.serialize(node.data)
-                }));
-            });
-            glacier.extraFiles.forEach(file => {
-                let pt = path.relative(glacier.basePath, file.path)
-                    .split(path.sep)
-                    .filter(part => part != '..' && part != '.')
-                    .join(path.sep);
-                file.cwd = cwd;
-                file.base = glacier.basePath;
-                file.path = path.join(glacier.basePath, options.staticPath, pt);
-                files.push(file);
-            });
-            return files;
+        let files = [];
+        glacier.forEach((node) => {
+            let pt = node.path
+                .map(part => cleanAliasPart(part))
+                .filter(part => !!part)
+                .join(path.sep);
+            if (!pt)
+                pt = '__index';
+            pt += '.bson';
+            files.push(new File({
+                base: glacier.basePath,
+                path: path.join(glacier.basePath, pt),
+                contents: bson.serialize(node.data)
+            }));
         });
+        glacier.extraFiles.forEach(file => {
+            let pt = path.relative(glacier.basePath, file.path)
+                .split(path.sep)
+                .filter(part => part != '..' && part != '.')
+                .join(path.sep);
+            file.base = glacier.basePath;
+            file.path = path.join(glacier.basePath, options.staticPath, pt);
+            files.push(file);
+        });
+        return files;
     };
 }
 exports.meltdown = meltdown;
